@@ -15,7 +15,7 @@
 2. 安装 `akshare-proxy-patch` 插件
 
 ```
-pip install akshare-proxy-patch==0.3.0
+pip install akshare-proxy-patch==0.4.0
 ```
 
 ## 🚀 使用方法（akshare / efinance / yfinance）
@@ -135,4 +135,4 @@ if __name__ == '__main__':
 
 如使用时遇到问题，或对插件有什么意见或建议，可进群交流：
 
-![YpRjixvpykLmzPtrX0kIkdPlvffOFJvF.webp](https://cdn.nodeimage.com/i/YpRjixvpykLmzPtrX0kIkdPlvffOFJvF.webp)
+![Knfv1JVAEBWyuaZc79CJKJALR7BVUgpH.webp](https://cdn.nodeimage.com/i/Knfv1JVAEBWyuaZc79CJKJALR7BVUgpH.webp)

@@ -93,3 +93,14 @@ def install_yfinance_patch_main(auth_ip, auth_token="", retry=30, hook_domains=[
         return _original_request(self, method, url, **kwargs)
 
     requests.Session.request = patched_request
+
+
+def uninstall_yfinance_patch_main():
+    """
+    恢复 requests.Session.request 到原始状态
+    """
+    if hasattr(requests.Session, "request"):
+        requests.Session.request = _original_request
+        print("yfinance_patch 已成功卸载")
+    else:
+        print("未发现 yfinance_patch 或已处于原始状态。")

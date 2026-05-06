@@ -1,13 +1,28 @@
 import time
+import random
 import threading
-import requests
-from urllib.parse import urlparse
-from .yfinance import install_yfinance_patch_main
+import sys
 
-__version__ = "0.3.0"
-# 备份 Session 的原始 request 方法
-_original_request = requests.Session.request
-_auth_session = requests.Session()
+# 1. 导入必要的库
+try:
+    from curl_cffi import requests as curl_requests
+    from curl_cffi.requests import BrowserType
+    from curl_cffi.requests.errors import RequestsError as RequestException
+except ImportError:
+    raise ImportError("请执行 pip install curl_cffi 来安装依赖")
+
+import requests as std_requests
+
+__version__ = "0.4.0"
+
+# 授权接口固定使用标准 requests，避免干扰
+_auth_session = std_requests.Session()
+
+target_browsers = [
+    b
+    for b in BrowserType.__dict__.values()
+    if isinstance(b, str) and (b.startswith("chrome") or b.startswith("edge"))
+]
 
 
 class AuthCache:
@@ -23,15 +38,11 @@ _cache = AuthCache()
 
 def get_auth_config_with_cache(auth_url, auth_token):
     now = time.time()
-    # 1. 检查缓存是否有效
     if _cache.data and now < _cache.expire_at:
         return _cache.data
-
-    # 2. 缓存失效，加锁更新
     with _cache.lock:
         if _cache.data and now < _cache.expire_at:
             return _cache.data
-
         try:
             resp = _auth_session.get(
                 auth_url,
@@ -44,13 +55,11 @@ def get_auth_config_with_cache(auth_url, auth_token):
                 _cache.expire_at = now + _cache.ttl
                 return data
             print(f"授权失败: {data.get('error_msg')}")
-        except Exception as e:
-            print(f"请求授权接口异常: {e}")
-
+        except:
+            pass
         return _cache.data
 
 
-# 如果访问的 URL 包含以下域名，走代理
 default_hook_domains = [
     "fund.eastmoney.com",
     "push2.eastmoney.com",
@@ -58,68 +67,116 @@ default_hook_domains = [
     "emweb.securities.eastmoney.com",
 ]
 
-default_yfinance_hook_domains = ["finance.yahoo.com"]
 
+def install_patch(
+    auth_ip, auth_token="", retry=30, hook_domains=default_hook_domains, timeout=5
+):
+    # 获取原始的 curl_cffi Session 类
+    # 1. 解决 Linux 下的 AttributeError: 'curl_cffi.requests' has no attribute 'adapters'
+    # 动态将标准 requests 的子模块挂载到 curl_requests 上
+    needed_submodules = [
+        "adapters",
+        "auth",
+        "cookies",
+        "exceptions",
+        "models",
+        "status_codes",
+        "structures",
+        "utils",
+        "packages",
+    ]
 
-def install_patch(auth_ip, auth_token="", retry=30, hook_domains=default_hook_domains):
-    def patched_request(self, method, url, **kwargs):
-        # 排除非目标域名
-        is_target = any(d in (url or "") for d in hook_domains)
-        is_js = urlparse(url or "").path.lower().endswith(".js")
-        is_html = urlparse(url or "").path.lower().endswith(".html")
+    setattr(curl_requests, "RequestException", RequestException)
+    for sub in needed_submodules:
+        if not hasattr(curl_requests, sub):
+            # 优先从标准 requests 借用这些定义，保证 akshare 里的 isinstance 或常量检查能过
+            setattr(curl_requests, sub, getattr(std_requests, sub, None))
 
-        if not is_target or is_js or is_html:
-            return _original_request(self, method, url, **kwargs)
+    _BaseSession = curl_requests.Session
 
-        auth_url = f"http://{auth_ip}:47001/api/akshare-auth"
+    # 定义兼容 Windows 调用的子类
+    class PatchedSession(_BaseSession):
+        def mount(self, prefix, adapter):
+            pass
 
-        # 重试逻辑
-        for _ in range(retry):
-            auth_res = get_auth_config_with_cache(auth_url, auth_token)
-            if not auth_res:
-                time.sleep(0.05)
-                continue
+        def request(self, method, url, **kwargs):
+            is_target = any(d in (url or "") for d in hook_domains)
+            clean_url = (url or "").split("?")[0].lower()
+            if (
+                not is_target
+                or clean_url.endswith(".js")
+                or clean_url.endswith(".html")
+            ):
+                return super().request(method, url, **kwargs)
 
-            # 处理 Headers：确保不破坏业务代码传入的 headers
-            headers = kwargs.get("headers") or {}
-            headers["User-Agent"] = auth_res["ua"]
-            headers["Cookie"] = (
-                f"nid18={auth_res['nid18']}; nid18_create_time={auth_res['nid18_create_time']}"
-            )
-            kwargs["headers"] = headers
-            kwargs["proxies"] = {
-                "http": auth_res["proxy"],
-                "https": auth_res["proxy"],
-            }
+            auth_url = f"http://{auth_ip}:47001/api/akshare-auth"
 
-            kwargs["timeout"] = (2.5, 5)
+            for i in range(retry):
+                auth_res = get_auth_config_with_cache(auth_url, auth_token)
+                if not auth_res:
+                    time.sleep(0.05)
+                    continue
 
-            try:
-                # 调用原始 request 方法
-                resp = _original_request(self, method, url, **kwargs)
-                if resp.ok:
-                    try:
-                        content_type = resp.headers.get("Content-Type").lower()
-                        if "json" not in content_type:
-                            return resp
-                        _ = resp.json()
+                # 适配参数
+                headers = kwargs.get("headers") or {}
+                headers["User-Agent"] = auth_res["ua"]
+                kwargs["headers"] = headers
+                kwargs["proxies"] = {
+                    "http": auth_res["proxy"],
+                    "https": auth_res["proxy"],
+                }
+                kwargs["timeout"] = timeout
+
+                kwargs["impersonate"] = random.choice(target_browsers)
+                # print(auth_res["proxy"], i, "=============")
+
+                try:
+                    # 关键：调用 curl_cffi 的原生 C 实现
+                    resp = super().request(method, url, **kwargs)
+                    if resp.status_code == 200:
+                        # 业务逻辑验证...
                         return resp
-                    except:
-                        pass
-                with _cache.lock:
-                    _cache.expire_at = 0
-                time.sleep(0.05)
-            except Exception:
-                with _cache.lock:
-                    _cache.expire_at = 0
+                    with _cache.lock:
+                        _cache.expire_at = 0
+                except:
+                    with _cache.lock:
+                        _cache.expire_at = 0
                 time.sleep(0.05)
 
-        return _original_request(self, method, url, **kwargs)
+            return super().request(method, url, **kwargs)
 
-    requests.Session.request = patched_request
+    # --- 核心改造：针对 Windows 的原地注入 ---
+
+    # 定义顶层包装函数
+    def patched_get(url, params=None, **kwargs):
+        with PatchedSession() as s:
+            return s.get(url, params=params, **kwargs)
+
+    def patched_post(url, data=None, json=None, **kwargs):
+        with PatchedSession() as s:
+            return s.post(url, data=data, json=json, **kwargs)
+
+    # 1. 替换 curl_requests 的成员
+    curl_requests.Session = PatchedSession
+    curl_requests.get = patched_get
+    curl_requests.post = patched_post
+
+    # 2. 【核心】原地修改 sys.modules 中的 requests 对象
+    # 即使 akshare 已经加载了 requests，我们直接修改 requests 模块的内容
+    if "requests" in sys.modules:
+        req_mod = sys.modules["requests"]
+        req_mod.Session = PatchedSession
+        req_mod.get = patched_get
+        req_mod.post = patched_post
+        req_mod.request = patched_get  # 部分库直接调 request
+
+    # 3. 确保后续导入重定向
+    sys.modules["requests"] = curl_requests
 
 
 def install_yfinance_patch(
-    auth_ip, auth_token="", retry=30, hook_domains=default_yfinance_hook_domains
+    auth_ip, auth_token="", retry=30, hook_domains=["finance.yahoo.com"]
 ):
+    from .yfinance import install_yfinance_patch_main
+
     install_yfinance_patch_main(auth_ip, auth_token, retry, hook_domains)
