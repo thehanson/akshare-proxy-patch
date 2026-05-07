@@ -15,7 +15,7 @@
 2. 安装 `akshare-proxy-patch` 插件
 
 ```
-pip install akshare-proxy-patch==0.4.0
+pip install akshare-proxy-patch==0.4.1
 ```
 
 ## 🚀 使用方法（akshare / efinance / yfinance）

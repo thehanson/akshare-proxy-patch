@@ -13,7 +13,7 @@ except ImportError:
 
 import requests as std_requests
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 # 授权接口固定使用标准 requests，避免干扰
 _auth_session = std_requests.Session()
@@ -71,53 +71,40 @@ default_hook_domains = [
 def install_patch(
     auth_ip, auth_token="", retry=30, hook_domains=default_hook_domains, timeout=5
 ):
-    # 获取原始的 curl_cffi Session 类
-    # 1. 解决 Linux 下的 AttributeError: 'curl_cffi.requests' has no attribute 'adapters'
-    # 动态将标准 requests 的子模块挂载到 curl_requests 上
-    needed_submodules = [
-        "adapters",
-        "auth",
-        "cookies",
-        "exceptions",
-        "models",
-        "status_codes",
-        "structures",
-        "utils",
-        "packages",
-    ]
+    # --- 核心改进：备份原始 Session 避开递归死循环 ---
+    if not hasattr(std_requests, "_OriginalSession"):
+        std_requests._OriginalSession = std_requests.Session
 
-    setattr(curl_requests, "RequestException", RequestException)
-    for sub in needed_submodules:
-        if not hasattr(curl_requests, sub):
-            # 优先从标准 requests 借用这些定义，保证 akshare 里的 isinstance 或常量检查能过
-            setattr(curl_requests, sub, getattr(std_requests, sub, None))
+    _CFFIBaseSession = curl_requests.Session
 
-    _BaseSession = curl_requests.Session
-
-    # 定义兼容 Windows 调用的子类
-    class PatchedSession(_BaseSession):
-        def mount(self, prefix, adapter):
-            pass
-
+    # 这里的基类改为 std_requests.Session，确保对第三方库的 isinstance 检查通过
+    class PatchedSession(std_requests._OriginalSession):
         def request(self, method, url, **kwargs):
             is_target = any(d in (url or "") for d in hook_domains)
             clean_url = (url or "").split("?")[0].lower()
+
+            # --- 情况 1：非目标域名，使用原始 requests 逻辑 ---
             if (
                 not is_target
                 or clean_url.endswith(".js")
                 or clean_url.endswith(".html")
             ):
-                return super().request(method, url, **kwargs)
+                kwargs.pop("impersonate", None)  # 移除 curl_cffi 特有参数
+                # 显式调用备份的原始 Session 方法，彻底避免递归
+                return std_requests._OriginalSession.request(
+                    self, method, url, **kwargs
+                )
 
+            # --- 情况 2：目标域名，逻辑保持不变 (走 curl_cffi) ---
             auth_url = f"http://{auth_ip}:47001/api/akshare-auth"
 
+            # 这里的逻辑和之前完全一致
             for i in range(retry):
                 auth_res = get_auth_config_with_cache(auth_url, auth_token)
                 if not auth_res:
                     time.sleep(0.05)
                     continue
 
-                # 适配参数
                 headers = kwargs.get("headers") or {}
                 headers["User-Agent"] = auth_res["ua"]
                 kwargs["headers"] = headers
@@ -126,28 +113,24 @@ def install_patch(
                     "https": auth_res["proxy"],
                 }
                 kwargs["timeout"] = timeout
-
                 kwargs["impersonate"] = random.choice(target_browsers)
-                # print(auth_res["proxy"], i, "=============")
 
                 try:
-                    # 关键：调用 curl_cffi 的原生 C 实现
-                    resp = super().request(method, url, **kwargs)
-                    if resp.status_code == 200:
-                        # 业务逻辑验证...
-                        return resp
-                    with _cache.lock:
-                        _cache.expire_at = 0
+                    # 对于目标域名，利用 curl_cffi 的 Session 来发起请求
+                    with _CFFIBaseSession() as cffi_s:
+                        resp = cffi_s.request(method, url, **kwargs)
+                        if resp.status_code == 200:
+                            return resp
+                        with _cache.lock:
+                            _cache.expire_at = 0
                 except:
                     with _cache.lock:
                         _cache.expire_at = 0
                 time.sleep(0.05)
 
-            return super().request(method, url, **kwargs)
+            return std_requests._OriginalSession.request(self, method, url, **kwargs)
 
-    # --- 核心改造：针对 Windows 的原地注入 ---
-
-    # 定义顶层包装函数
+    # 定义补丁包装函数
     def patched_get(url, params=None, **kwargs):
         with PatchedSession() as s:
             return s.get(url, params=params, **kwargs)
@@ -156,22 +139,21 @@ def install_patch(
         with PatchedSession() as s:
             return s.post(url, data=data, json=json, **kwargs)
 
-    # 1. 替换 curl_requests 的成员
+    def patched_request(method, url, **kwargs):
+        with PatchedSession() as s:
+            return s.request(method, url, **kwargs)
+
+    # --- 最小化原地注入 ---
+    # 仅修改标准 requests 模块的成员引用，不替换 sys.modules["requests"]
+    std_requests.Session = PatchedSession
+    std_requests.get = patched_get
+    std_requests.post = patched_post
+    std_requests.request = patched_request
+
+    # 同步修改 curl_requests 以保持库内部一致性
     curl_requests.Session = PatchedSession
     curl_requests.get = patched_get
     curl_requests.post = patched_post
-
-    # 2. 【核心】原地修改 sys.modules 中的 requests 对象
-    # 即使 akshare 已经加载了 requests，我们直接修改 requests 模块的内容
-    if "requests" in sys.modules:
-        req_mod = sys.modules["requests"]
-        req_mod.Session = PatchedSession
-        req_mod.get = patched_get
-        req_mod.post = patched_post
-        req_mod.request = patched_get  # 部分库直接调 request
-
-    # 3. 确保后续导入重定向
-    sys.modules["requests"] = curl_requests
 
 
 def install_yfinance_patch(
