@@ -88,6 +88,47 @@ data = yf.download("AAPL", start="2017-01-01", end="2017-04-30")
   - 可点击 `ak` 或 `ef` 函数查看接口源码对应的 `URL`，根据封控情况细化可以降低积分消耗。
   - 如只封控 `stock_zh_a_spot_em` 这个接口，`hook_domains` 可设置为 `["https://82.push2.eastmoney.com/api/qt/clist/get"]`。
 
+## 如何灵活禁用/启用插件？
+
+加入如下代码后插件就会被禁用：
+
+```
+import importlib, requests;importlib.reload(requests)
+```
+
+下面是插件启用 --> 禁用 --> 再次启用的例子：
+
+```
+##### 1. 启用插件
+import akshare_proxy_patch
+
+akshare_proxy_patch.install_patch(
+    "101.201.173.125",
+    auth_token='你的TOKEN',
+    retry=30,
+    # 封控的域名列表，可自行调整
+    hook_domains=[
+      "fund.eastmoney.com",
+      "push2.eastmoney.com",
+      "push2his.eastmoney.com",
+      "emweb.securities.eastmoney.com",
+    ],
+)
+import akshare as ak
+df =  ak.fund_etf_hist_em()
+
+###### 2. 禁用插件
+import importlib, requests;importlib.reload(requests)
+
+# 禁用后测试
+try:
+  df = ak.fund_etf_hist_em()
+except Exception as e:
+   print('插件被禁用了，这里可能会报错')
+
+##### 3. 再次启用插件，重复上述 1、2 的代码即可
+```
+
 ## 🛠️ 如何在 aktools 内集成插件？
 
 `aktools` 想要集成插件，需要新建一个 `akt.py` 替换官方的 `python -m aktools` 启动命令，下面是 `akt.py` 内容：
