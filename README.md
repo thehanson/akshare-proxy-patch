@@ -178,4 +178,4 @@ if __name__ == '__main__':
 
 如使用时遇到问题，或对插件有什么意见或建议，可进群交流：
 
-![68nZRBYXvFfgnrHudYyb2jKI5nNX5mbw.webp](https://cdn.nodeimage.com/i/68nZRBYXvFfgnrHudYyb2jKI5nNX5mbw.webp)
+![5TZKxn1xMXE84yE4Df8wmWC5a6BNy7gs.webp](https://cdn.nodeimage.com/i/5TZKxn1xMXE84yE4Df8wmWC5a6BNy7gs.webp)
