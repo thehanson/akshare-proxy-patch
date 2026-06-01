@@ -169,7 +169,13 @@ if __name__ == '__main__':
 
 然后执行 `python akt.py` 即可启动一个 `http://127.0.0.1:8080/` 服务。只是启动方式不同而已，使用请参考 [aktools 官方文档](https://github.com/akfamily/aktools)。
 
-## ❓ 我没使用 akshare 或 efinance，能集成插件吗？
+## 如何多进程使用？
+
+- 尽管 `efinance` 中内置了多线程并发请求，但是在大规模快速获取数据时，仍需要多进程来提升效率。
+- 参考 `examples/并发获取股票行情/` 目录下的 `main.py` 和 `worker.py` 示例，修改 `worker.py` 中的 `auth_token`，执行 `main.py` 即可。
+- `main.py` 负责分割任务和启动多个 `worker.py` 进程，`worker.py` 中引入插件并执行数据获取逻辑，最后将结果合并保存。
+
+## 我没使用 akshare 或 efinance，能集成插件吗？
 
 - 如果使用 Python 语言的 `requests` 库请求接口，插件能自动 hook 住请求，正常工作。
 - 如果您使用其他语言或 python 的其他库，可 [手动提取代理](http://101.201.173.125:47001/api/akshare-auth?token=XXX&version=0.4.2) 自行实现封控解除。
