@@ -77,7 +77,7 @@ import yfinance as yf
 data = yf.download("AAPL", start="2017-01-01", end="2017-04-30")
 ```
 
-4. WARNING: 强烈建议尽量用 `efinance` 替代 `akshare` 来获取数据，效率更高，更省积分。
+4. [尽量用 `efinance` 替代 `akshare` 的部分函数获取数据，效率更高，更省积分](https://github.com/Micro-sheep/efinance)
 
 ## install_patch 参数说明
 
