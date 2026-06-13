@@ -7,7 +7,7 @@
 - 解决 `akshare` 的 `stock_zh_a_spot_em`、`stock_zh_a_hist` 接口报错问题
 - 解决 `efinance` 的 `get_realtime_quotes` 等接口报错问题
 - 解决 `yfinance` Yahoo接口国内无法使用问题
-- 加速 `stock_zh_a_spot_em`、`stock_individual_fund_flow_rank` 等 `akshare` 接口
+- 多线程加速 `stock_zh_a_spot_em`、`stock_individual_fund_flow_rank` 等 `akshare` 接口
 
 ## 📦 安装
 
@@ -93,7 +93,7 @@ data = yf.download("AAPL", start="2017-01-01", end="2017-04-30")
   - 接口 `URL` 包含数组中的其中一条，就会走插件。
   - 可点击 `ak` 或 `ef` 函数查看接口源码对应的 `URL`，根据封控情况细化可以降低积分消耗。
   - 如只封控 `stock_zh_a_spot_em` 这个接口，`hook_domains` 可设置为 `["https://82.push2.eastmoney.com/api/qt/clist/get"]`。
-- 参数5：是否启用多线程加速，加速列表如下：
+- 参数5：是否启用多线程加速，加速函数列表如下：
   - 所有用到 `fetch_paginated_data` 分页函数的接口，如 `stock_zh_a_spot_em`
   - `stock_individual_fund_flow_rank`
   - `stock_sector_fund_flow_rank`
@@ -103,18 +103,17 @@ data = yf.download("AAPL", start="2017-01-01", end="2017-04-30")
   - `fund_fh_em`
   - `fund_cf_em`
   - `fund_fh_rank_em`
-  - 如有其他加速需求欢迎反馈
+  - 如有其他函数加速需求欢迎反馈
 
 ## 如何在 aktools 内集成插件？
 
 - `aktools` 想要集成插件，需下载 [akt.py](https://github.com/HelloYie/akshare-proxy-patch/blob/master/examples/aktools/akt.py) 文件，并填入您的 `TOKEN`。
 - 然后执行 `python akt.py` 即可启动一个 `http://127.0.0.1:8080/` 服务。只是启动方式不同而已，使用请参考 [aktools 官方文档](https://github.com/akfamily/aktools)。
 
-## 如何多进程使用，快速拉取数据？
+## 股票数量很多，如何快速拉取数据？
 
 - 尽量使用 `efinance` 替代 `akshare` 来获取数据， `efinance` 内置多线程，效率更高，更省积分。
-- 在大规模快速获取数据时，仍需要多进程来提升效率。 参考 `examples/并发获取股票行情/` 目录下的 `main.py` 和 `worker.py` 示例，修改 `worker.py` 中的 `auth_token`，执行 `python main.py` 即可。
-- `main.py` 负责分割任务和启动多个 `worker.py` 进程，`worker.py` 中引入插件并执行数据获取逻辑，最后将结果合并保存。
+- 在大规模快速获取数据时，可使用多进程提升效率。 可以参考 [多进程获取数千支股票行情示例](https://github.com/HelloYie/akshare-proxy-patch/blob/master/examples/%E5%B9%B6%E5%8F%91%E8%8E%B7%E5%8F%96%E8%82%A1%E7%A5%A8%E8%A1%8C%E6%83%85/main.py)，修改 `auth_token`，执行 `python main.py` 测试。
 
 ## 如何灵活禁用/启用插件？
 

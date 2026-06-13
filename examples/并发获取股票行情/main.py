@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import os
-import subprocess
-import sys
 import time
+import multiprocessing
 import pandas as pd
 
 # 设定并发进程数
@@ -32,7 +30,61 @@ def get_codes():
         return ["600519", "000858", "002594", "300750", "601318"]
 
 
-if __name__ == "__main__":
+def install_proxy_patch():
+    """
+    在子进程内注入代理补丁，确保 akshare 请求走指定代理。
+    """
+    import akshare_proxy_patch
+
+    akshare_proxy_patch.install_patch(
+        "101.201.173.125",
+        auth_token="你的TOKEN",
+        retry=30,
+        hook_domains=[
+            "fund.eastmoney.com",
+            "push2.eastmoney.com",
+            "push2his.eastmoney.com",
+            "emweb.securities.eastmoney.com",
+        ],
+    )
+
+
+def worker(worker_id, chunk_codes, beg_date, klt, fqt):
+    install_proxy_patch()
+    import efinance as ef
+
+    if not chunk_codes:
+        print(f"⚠ [Worker {worker_id}] 任务列表为空，退出")
+        return None
+
+    print(
+        f" 🚀 [Worker {worker_id}] 启动成功！读取到 {len(chunk_codes)} 只股票。指定日期: {beg_date}"
+    )
+
+    try:
+        df = ef.stock.get_quote_history(
+            stock_codes=chunk_codes,
+            beg=beg_date,
+            end=beg_date,
+            klt=int(klt),
+            fqt=int(fqt),
+            return_df=True,
+        )
+
+        if df is not None and not df.empty:
+            print(
+                f" 📜 [Worker {worker_id}] 成功获取 {len(df)} 行数据，准备返回主进程。"
+            )
+            return df
+
+        print(f" ⚠ [Worker {worker_id}] 接口未返回数据（可能是停牌或无交易）。")
+        return None
+    except Exception as e:
+        print(f"❌ [Worker {worker_id}] 运行期间发生异常: {e}")
+        return None
+
+
+def main():
     stock_code_s = get_codes()
     print(f"📊 总共加载了 {len(stock_code_s)} 只股票")
 
@@ -40,84 +92,41 @@ if __name__ == "__main__":
     klt = "5"
     fqt = "1"
 
-    CHUNK_SIZE = (len(stock_code_s) + PROCESS_NUM - 1) // PROCESS_NUM
-    chunks = chunk(stock_code_s, CHUNK_SIZE)
+    if not stock_code_s:
+        print("❌ 未读取到任何股票代码，程序退出。")
+        return
+
+    process_num = min(PROCESS_NUM, len(stock_code_s))
+    chunk_size = (len(stock_code_s) + process_num - 1) // process_num
+    chunks = chunk(stock_code_s, chunk_size)
 
     total_start = time.time()
-    process_list = []
-    task_files = []
+    print(f"⚙ 指挥官：正在派发 {len(chunks)} 个子进程任务...")
 
-    # 获取当前无视系统、无视环境的 Python 绝对路径
-    current_python = sys.executable
-    print(f"🎯 探测到当前客户端 Python 环境路径: {current_python}")
-    print(f"⚙ 指挥官：正在生成并派发任务文件...")
+    args = [
+        (str(idx + 1), chunk_codes, target_date, klt, fqt)
+        for idx, chunk_codes in enumerate(chunks)
+    ]
 
-    for idx, chunk_codes in enumerate(chunks):
-        worker_id = str(idx + 1)
+    with multiprocessing.Pool(process_num) as pool:
+        results = pool.starmap(worker, args)
 
-        task_file = f"./temp_task_{worker_id}.txt"
-        with open(task_file, "w", encoding="utf-8") as f:
-            f.write("\n".join(chunk_codes))
-        task_files.append(task_file)
+    print("\n--- 🏁 所有独立子进程已全部结束，开始合并数据 ---")
 
-        cmd = [
-            current_python,
-            "worker.py",
-            worker_id,
-            task_file,
-            target_date,
-            klt,
-            fqt,
-        ]
+    all_dfs = [df for df in results if df is not None and not df.empty]
 
-        # 异步启动子进程
-        p = subprocess.Popen(cmd)
-        process_list.append((worker_id, p))
-
-    print(f"⏳ 指挥官：所有子进程已全部派发，正在等待它们各自运行结束...")
-
-    # 等待所有后台进程结束
-    for worker_id, p in process_list:
-        p.wait()
-
-    print("\n--- 🏁 所有独立子进程已全部结束，开始回收并合并数据 ---")
-
-    # 读取临时文件并合并
-    all_dfs = []
-    for idx in range(len(chunks)):
-        worker_id = idx + 1
-        temp_filename = f"./temp_raw_data_{worker_id}.csv"
-        try:
-            df_part = pd.read_csv(temp_filename, encoding="utf-8-sig")
-            all_dfs.append(df_part)
-            os.remove(temp_filename)  # 回收成功后清理临时 CSV
-        except FileNotFoundError:
-            print(f"⚠ 未找到 Worker {worker_id} 的临时数据文件，该批次可能执行失败。")
-
-    # 清理临时的任务 txt 文件
-    for tf in task_files:
-        if os.path.exists(tf):
-            os.remove(tf)
-
-    # 最终汇总
     if all_dfs:
         final_df = pd.concat(all_dfs, ignore_index=True)
         output_name = f"stock_5m_{target_date}.csv"
         final_df.to_csv(output_name, index=False, encoding="utf-8-sig")
-        print(f"🎉 【跨平台多进程】数据完美合并！总行数: {len(final_df)}")
+        print(f"🎉 【跨进程执行】数据完美合并！总行数: {len(final_df)}")
         print(f"💾 最终文件已保存至: {output_name}")
     else:
-        print("❌ 灾难：未能收集到任何有效数据。请检查 worker.py 是否在当前目录下。")
-
-    # 1. 自动删除临时数据 CSV 文件
-    try:
-        df_part = pd.read_csv(temp_filename, encoding="utf-8-sig")
-        all_dfs.append(df_part)
-        os.remove(
-            temp_filename
-        )  # 👈 读完并加入大部队后，这里会自动把 temp_raw_data_*.csv 删掉
-    except FileNotFoundError:
-        pass
+        print("❌ 灾难：未能收集到任何有效数据。请检查子进程运行日志。")
 
     total_end = time.time()
     print(f"🚀 运行总耗时：{total_end - total_start:.2f}秒")
+
+
+if __name__ == "__main__":
+    main()
