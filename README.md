@@ -94,7 +94,7 @@ data = yf.download("AAPL", start="2017-01-01", end="2017-04-30")
   - 可点击 `ak` 或 `ef` 函数查看接口源码对应的 `URL`，根据封控情况细化可以降低积分消耗。
   - 如只封控 `stock_zh_a_spot_em` 这个接口，`hook_domains` 可设置为 `["https://82.push2.eastmoney.com/api/qt/clist/get"]`。
 - 参数5：是否启用多线程加速，加速函数列表如下：
-  - 所有用到 `fetch_paginated_data` 分页函数的接口，如 `stock_zh_a_spot_em`
+  - 所有用到 `fetch_paginated_data` 分页函数的接口，如 `stock_zh_a_spot_em`、`stock_sh_a_spot_em`、`stock_board_industry_cons_em` 等
   - `stock_individual_fund_flow_rank`
   - `stock_sector_fund_flow_rank`
   - `fund_money_fund_info_em`
