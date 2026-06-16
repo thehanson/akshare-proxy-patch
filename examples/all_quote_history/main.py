@@ -19,13 +19,29 @@ def chunk(lst, size):
 
 def get_codes():
     """
-    获取所有股票代码，可以替换成你自己的股票列表来源
+    使用 efinance 动态获取全量 A 股股票代码
     """
+    install_proxy_patch()
+    print("📡 正在从 efinance 实时获取最新股票列表...")
     try:
-        with open("./stock_lists.csv", "r", encoding="utf-8") as f:
-            lines = f.read().splitlines()[1:]
-        return [line.split(",")[2] for line in lines]
-    except Exception:
+        import efinance as ef
+        
+        # 获取最新的全量股票最新快报/行情
+        df = ef.stock.get_realtime_quotes()
+        
+        if df is not None and not df.empty:
+            # 提取股票代码列（通常列名为 '股票代码'）
+            # 过滤掉指数或其他非个股代码（A股通常是6位数字）
+            stock_codes = df['股票代码'].astype(str).tolist()
+            stock_codes = [code for code in stock_codes if code.isdigit() and len(code) == 6]
+            
+            print(f"✅ 成功获取到 {len(stock_codes)} 只个股代码。")
+            return stock_codes
+        else:
+            raise ValueError("获取到的股票列表为空")
+            
+    except Exception as e:
+        print(f"⚠ 动态获取股票列表失败: {e}，将启用兜底测试数据。")
         # 兜底测试数据
         return ["600519", "000858", "002594", "300750", "601318"]
 
@@ -45,6 +61,7 @@ def install_proxy_patch():
             "push2.eastmoney.com",
             "push2his.eastmoney.com",
             "emweb.securities.eastmoney.com",
+            "searchapi.eastmoney.com/api/suggest/get"
         ],
     )
 

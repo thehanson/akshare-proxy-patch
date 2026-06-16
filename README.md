@@ -40,6 +40,7 @@ akshare_proxy_patch.install_patch(
       "push2.eastmoney.com",
       "push2his.eastmoney.com",
       "emweb.securities.eastmoney.com",
+      "searchapi.eastmoney.com/api/suggest/get"
     ],
     fast=True
 )
@@ -113,7 +114,7 @@ data = yf.download("AAPL", start="2017-01-01", end="2017-04-30")
 ## 股票数量很多，如何快速拉取数据？
 
 - 尽量使用 `efinance` 替代 `akshare` 来获取数据， `efinance` 内置多线程，效率更高，更省积分。
-- 在大规模快速获取数据时，可使用多进程提升效率。 可以参考 [多进程获取数千支股票行情示例](https://github.com/HelloYie/akshare-proxy-patch/blob/master/examples/%E5%B9%B6%E5%8F%91%E8%8E%B7%E5%8F%96%E8%82%A1%E7%A5%A8%E8%A1%8C%E6%83%85/main.py)，修改 `auth_token`，执行 `python main.py` 测试。
+- 在大规模快速获取数据时，可使用多进程提升效率。 可以参考 [多进程获取所有股票的历史K线](https://github.com/HelloYie/akshare-proxy-patch/blob/master/examples/all_quote_history/main.py)，修改 `auth_token`，执行 `python main.py` 测试。
 
 ## 如何灵活禁用/启用插件？
 
